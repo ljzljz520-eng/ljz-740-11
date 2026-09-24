@@ -1,23 +1,14 @@
 package bindings
 
 import (
-	"fmt"
-	"os"
-	"runtime"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
 )
 
-// 平台相关的库名
-var libNames = map[string]string{
-	"darwin":  "libstable-diffusion.dylib",
-	"linux":   "libstable-diffusion.so",
-	"windows": "stable-diffusion.dll", // 与 CMakeLists.txt 一致
-}
-
-// 全局变量，存储加载的库
-var lib uintptr
+// 动态库的加载、平台识别与错误处理见 library.go。
+// 包初始化时会自动尝试加载，失败则回退 mock，可通过 LoadError() 查看原因；
+// 也可显式调用 Load()/LoadOrMock()。
 
 // 保持回调函数的引用，防止被GC
 var (
@@ -25,49 +16,6 @@ var (
 	currentProgressCallback uintptr
 	currentPreviewCallback  uintptr
 )
-
-// 初始化函数，加载对应平台的库
-func init() {
-	// 优先检查环境变量
-	libName := os.Getenv("SD_LIB_PATH")
-	if libName == "" {
-		name, ok := libNames[runtime.GOOS]
-		if ok {
-			// 尝试在几个可能的路径搜索
-			searchPaths := []string{
-				name,
-				"./" + name,
-				"./stable-diffusion.cpp/build/bin/" + name,
-				"./stable-diffusion.cpp/build/bin/Release/" + name,
-				"/usr/local/lib/" + name,
-				"/usr/lib/" + name,
-			}
-			for _, p := range searchPaths {
-				if _, err := os.Stat(p); err == nil {
-					libName = p
-					break
-				}
-			}
-			if libName == "" {
-				libName = name // 回退到默认库名，让 Dlopen 尝试系统路径
-			}
-		} else {
-			fmt.Printf("Warning: Unsupported platform: %s, using mock implementation\n", runtime.GOOS)
-			InitFuncs()
-			return
-		}
-	}
-
-	// 尝试加载库
-	var err error
-	lib, err = purego.Dlopen(libName, purego.RTLD_NOW|purego.RTLD_GLOBAL)
-	if err != nil {
-		fmt.Printf("Warning: Failed to load library: %v, using mock implementation\n", err)
-	}
-
-	// 初始化函数指针
-	InitFuncs()
-}
 
 // 枚举类型定义
 
@@ -104,7 +52,7 @@ const (
 	TCD_SAMPLE_METHOD
 	RES_MULTISTEP_SAMPLE_METHOD
 	RES_2S_SAMPLE_METHOD
-	SAMPLE_METHOD = iota // Added to match header logic if needed, but SAMPLE_METHOD_COUNT is usually last
+	SAMPLE_METHOD       = iota // Added to match header logic if needed, but SAMPLE_METHOD_COUNT is usually last
 	SAMPLE_METHOD_COUNT = RES_2S_SAMPLE_METHOD + 1
 
 	// Scheduler
@@ -195,12 +143,12 @@ const (
 
 // 结构体定义
 type SdTilingParams struct {
-	Enabled        bool
-	TileSizeX      int
-	TileSizeY      int
-	TargetOverlap  float32
-	RelSizeX       float32
-	RelSizeY       float32
+	Enabled       bool
+	TileSizeX     int
+	TileSizeY     int
+	TargetOverlap float32
+	RelSizeX      float32
+	RelSizeY      float32
 }
 
 type SdEmbedding struct {
@@ -420,8 +368,8 @@ var (
 	freeSdCtx func(ctx *SdCtx)
 
 	// 采样参数初始化
-	sdSampleParamsInit   func(params *SdSampleParams)
-	sdSampleParamsToStr  func(params *SdSampleParams) *byte
+	sdSampleParamsInit  func(params *SdSampleParams)
+	sdSampleParamsToStr func(params *SdSampleParams) *byte
 
 	// 获取默认采样方法和调度器
 	sdGetDefaultSampleMethod func(ctx *SdCtx) SampleMethod
@@ -452,57 +400,6 @@ var (
 	sdCommit  func() *byte
 	sdVersion func() *byte
 )
-
-// 初始化所有函数指针
-func InitFuncs() {
-	if lib == 0 {
-		// 设置模拟实现
-		setMockImplementations()
-		return
-	}
-
-	purego.RegisterLibFunc(&sdSetLogCallback, lib, "sd_set_log_callback")
-	purego.RegisterLibFunc(&sdSetProgressCallback, lib, "sd_set_progress_callback")
-	purego.RegisterLibFunc(&sdSetPreviewCallback, lib, "sd_set_preview_callback")
-	purego.RegisterLibFunc(&sdGetNumPhysicalCores, lib, "sd_get_num_physical_cores")
-	purego.RegisterLibFunc(&sdGetSystemInfo, lib, "sd_get_system_info")
-	purego.RegisterLibFunc(&sdTypeName, lib, "sd_type_name")
-	purego.RegisterLibFunc(&strToSdType, lib, "str_to_sd_type")
-	purego.RegisterLibFunc(&sdRngTypeName, lib, "sd_rng_type_name")
-	purego.RegisterLibFunc(&strToRngType, lib, "str_to_rng_type")
-	purego.RegisterLibFunc(&sdSampleMethodName, lib, "sd_sample_method_name")
-	purego.RegisterLibFunc(&strToSampleMethod, lib, "str_to_sample_method")
-	purego.RegisterLibFunc(&sdSchedulerName, lib, "sd_scheduler_name")
-	purego.RegisterLibFunc(&strToScheduler, lib, "str_to_scheduler")
-	purego.RegisterLibFunc(&sdPredictionName, lib, "sd_prediction_name")
-	purego.RegisterLibFunc(&strToPrediction, lib, "str_to_prediction")
-	purego.RegisterLibFunc(&sdPreviewName, lib, "sd_preview_name")
-	purego.RegisterLibFunc(&strToPreview, lib, "str_to_preview")
-	purego.RegisterLibFunc(&sdLoraApplyModeName, lib, "sd_lora_apply_mode_name")
-	purego.RegisterLibFunc(&strToLoraApplyMode, lib, "str_to_lora_apply_mode")
-	purego.RegisterLibFunc(&sdCacheParamsInit, lib, "sd_cache_params_init")
-	purego.RegisterLibFunc(&sdCtxParamsInit, lib, "sd_ctx_params_init")
-	purego.RegisterLibFunc(&sdCtxParamsToStr, lib, "sd_ctx_params_to_str")
-	purego.RegisterLibFunc(&newSdCtx, lib, "new_sd_ctx")
-	purego.RegisterLibFunc(&freeSdCtx, lib, "free_sd_ctx")
-	purego.RegisterLibFunc(&sdSampleParamsInit, lib, "sd_sample_params_init")
-	purego.RegisterLibFunc(&sdSampleParamsToStr, lib, "sd_sample_params_to_str")
-	purego.RegisterLibFunc(&sdGetDefaultSampleMethod, lib, "sd_get_default_sample_method")
-	purego.RegisterLibFunc(&sdGetDefaultScheduler, lib, "sd_get_default_scheduler")
-	purego.RegisterLibFunc(&sdImgGenParamsInit, lib, "sd_img_gen_params_init")
-	purego.RegisterLibFunc(&sdImgGenParamsToStr, lib, "sd_img_gen_params_to_str")
-	purego.RegisterLibFunc(&generateImage, lib, "generate_image")
-	purego.RegisterLibFunc(&sdVidGenParamsInit, lib, "sd_vid_gen_params_init")
-	purego.RegisterLibFunc(&generateVideo, lib, "generate_video")
-	purego.RegisterLibFunc(&newUpscalerCtx, lib, "new_upscaler_ctx")
-	purego.RegisterLibFunc(&freeUpscalerCtx, lib, "free_upscaler_ctx")
-	purego.RegisterLibFunc(&upscale, lib, "upscale")
-	purego.RegisterLibFunc(&getUpscaleFactor, lib, "get_upscale_factor")
-	purego.RegisterLibFunc(&convert, lib, "convert")
-	purego.RegisterLibFunc(&preprocessCanny, lib, "preprocess_canny")
-	purego.RegisterLibFunc(&sdCommit, lib, "sd_commit")
-	purego.RegisterLibFunc(&sdVersion, lib, "sd_version")
-}
 
 // 设置模拟实现
 func setMockImplementations() {

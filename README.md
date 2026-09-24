@@ -268,3 +268,42 @@ ok  github.com/example/stablediffusion/test
 | `PORT` | HTTP 服务端口 | `8080` |
 | `HOST` | HTTP 监听地址 | `0.0.0.0` |
 | `GENERATE_TIMEOUT` | 生成超时时间 | `5m` |
+
+### 动态库加载
+
+绑定会按当前平台识别默认库文件名：
+
+| 平台 | 库文件名 |
+|------|----------|
+| macOS (`darwin`) | `libstable-diffusion.dylib` |
+| Linux | `libstable-diffusion.so` |
+| Windows | `stable-diffusion.dll` |
+
+包初始化时会自动尝试加载：优先使用 `SD_LIB_PATH` 指定的路径，
+否则依次搜索工作目录、`stable-diffusion.cpp/build/bin`（Windows 还包含
+`Release`/`Debug` 子目录）以及 `/usr/local/lib`、`/usr/lib`（macOS arm64
+额外包含 `/opt/homebrew/lib`）。裸库名会交给系统加载器按
+`LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` / `PATH` 等规则查找。
+
+加载流程不会 panic；如需显式处理错误：
+
+```go
+import "github.com/example/stablediffusion/bindings"
+
+func main() {
+    if err := bindings.Load(); err != nil {
+        var le *bindings.LibraryLoadError
+        if errors.As(err, &le) {
+            fmt.Printf("平台 %s/%s 不支持或以下路径均加载失败:\n", le.Platform, le.Arch)
+            for i, p := range le.Candidates {
+                fmt.Printf("  %s: %v\n", p, le.Errors[i])
+            }
+        }
+        os.Exit(1)
+    }
+    // ...
+}
+```
+
+也可以通过 `bindings.LoadOrMock()` 在加载失败时回退到 mock 实现，
+用 `bindings.IsLoaded()` 与 `bindings.LoadError()` 查询当前状态。
