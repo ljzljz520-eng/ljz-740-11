@@ -91,6 +91,39 @@ curl http://localhost:8080/health
 
 ## 📋 API 概览
 
+### 加载动态库
+
+绑定不再在包初始化时隐式加载库，需显式调用 `bindings.LoadLibrary()`：
+
+```go
+import "github.com/example/stablediffusion/bindings"
+
+func main() {
+    if err := bindings.LoadLibrary(); err != nil {
+        // *bindings.LoadError 携带平台 (GOOS/GOARCH)、环境变量值、
+        // 候选路径与全部已搜索路径，便于定位问题；加载过程不会 panic。
+        log.Fatalf("load stable-diffusion library: %v", err)
+    }
+    // 也可用 bindings.IsLoaded() / bindings.LibraryPath() 查询加载状态
+}
+```
+
+库的定位顺序：
+
+1. 环境变量 `SD_LIB_PATH` 指定的路径（原样加载，不搜索）；
+2. 当前平台默认库名，在常见构建/安装目录中搜索；
+3. 退回裸库名，交由系统加载器按 `LD_LIBRARY_PATH` / `DYLD_*` / `PATH` 搜索。
+
+各平台默认文件名：
+
+| 平台 | 文件名 |
+| --- | --- |
+| macOS | `libstable-diffusion.dylib` |
+| Linux | `libstable-diffusion.so` |
+| Windows | `stable-diffusion.dll` |
+
+未调用 `LoadLibrary`（或加载失败）时，绑定使用 mock 占位实现，调用不会 panic，但无法执行真实推理。
+
 ### 基础用法
 
 ```go

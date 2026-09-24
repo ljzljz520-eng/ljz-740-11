@@ -34,7 +34,7 @@ func TestCStringGoString(t *testing.T) {
 func TestMockImplementation(t *testing.T) {
 	// Ensure we rely on mock implementation when lib is not present
 	// This assumes the test environment doesn't have the shared library in default paths
-	
+
 	sysInfo := GetSystemInfo()
 	if sysInfo == "" {
 		t.Error("GetSystemInfo returned empty string")
@@ -55,15 +55,15 @@ func TestMockImplementation(t *testing.T) {
 
 func TestCallbackWrapper(t *testing.T) {
 	// This test just ensures the wrapper function doesn't panic
-	// Actual callback execution would require the mock to call it back, 
+	// Actual callback execution would require the mock to call it back,
 	// which currently the mock implementations (empty bodies) don't do.
 	// However, we can verify the setting logic.
-	
+
 	logCb := func(level SdLogLevel, text *byte, data unsafe.Pointer) {
 		fmt.Printf("Log: %s\n", GoString(text))
 	}
 	SetLogCallback(logCb, nil)
-	
+
 	if currentLogCallback == 0 {
 		t.Error("currentLogCallback was not set")
 	}
